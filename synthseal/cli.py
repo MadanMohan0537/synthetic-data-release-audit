@@ -21,8 +21,11 @@ def main()->None:
 - TSTR utility gap: {after['utility_gap']:.3f}
 - Membership attack rate: {after['membership_attack_rate']:.3f}
 - Rare-record exposures: {before['rare_exposures']} before, {after['rare_exposures']} after remediation.
+- Attack flags: {before['attack_ensemble']['risk_flags']} before, {after['attack_ensemble']['risk_flags']} after remediation.
+- Release recommendation: {after['attack_ensemble']['release_recommendation']}.
 - Not approved for decisions about people or as evidence of formal privacy.
 """
     (args.output/"DATA_CARD.md").write_text(card)
-    print(json.dumps({"released_rows":len(cleaned),"rare_exposures_before":before["rare_exposures"],"rare_exposures_after":after["rare_exposures"],"utility_gap_after":after["utility_gap"]},indent=2))
+    print(json.dumps({"released_rows":len(cleaned),"rare_exposures_before":before["rare_exposures"],"rare_exposures_after":after["rare_exposures"],"attack_flags_after":after["attack_ensemble"]["risk_flags"],"utility_gap_after":after["utility_gap"]},indent=2))
 if __name__=="__main__": main()
+

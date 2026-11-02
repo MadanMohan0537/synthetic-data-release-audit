@@ -67,7 +67,34 @@ def nearest_distances(real:list[Row], synth:list[Row]) -> list[float]:
     return [min(_distance(s,r,scales) for r in real) for s in synth]
 
 def membership_attack_rate(real:list[Row], synth:list[Row], threshold:float=.02) -> float:
+    if not real or not synth: raise ValueError("real and synthetic data must be non-empty")
     return sum(d<=threshold for d in nearest_distances(real,synth))/len(synth)
+
+def membership_inference_auc(members:list[Row], nonmembers:list[Row], synth:list[Row]) -> float:
+    """Optimistic attacker AUC: smaller distance to the release predicts membership."""
+    if not members or not nonmembers or not synth:
+        raise ValueError("members, nonmembers, and synthetic data must be non-empty")
+    scales=_scales(members+nonmembers)
+    member_dist=[min(_distance(row,s,scales) for s in synth) for row in members]
+    nonmember_dist=[min(_distance(row,s,scales) for s in synth) for row in nonmembers]
+    wins=sum(m<n for m in member_dist for n in nonmember_dist)
+    ties=sum(m==n for m in member_dist for n in nonmember_dist)
+    return (wins+.5*ties)/(len(member_dist)*len(nonmember_dist))
+
+def attribute_inference(members:list[Row], targets:list[Row], synth:list[Row]) -> dict[str,float|int]:
+    """Infer target from quasi-identifiers using the nearest released row."""
+    if not members or not targets or not synth:
+        raise ValueError("members, targets, and synthetic data must be non-empty")
+    fields=("age","hours")
+    scales={k:max(pstdev(float(r[k]) for r in members+targets),1.0) for k in fields}
+    def distance(a:Row,b:Row)->float:
+        numeric=sum(((float(a[k])-float(b[k]))/scales[k])**2 for k in fields)
+        categorical=sum(a[k]!=b[k] for k in ("education","region"))
+        return sqrt(numeric+categorical)
+    predictions=[min(synth,key=lambda s:distance(row,s))["target"] for row in targets]
+    accuracy=mean(pred==row["target"] for pred,row in zip(predictions,targets))
+    majority=max(Counter(r["target"] for r in synth).values())/len(synth)
+    return {"cases":len(targets),"accuracy":accuracy,"majority_baseline":majority,"advantage":accuracy-majority}
 
 def rarity_counts(real:list[Row]) -> Counter:
     return Counter((r["education"],r["region"],r["target"]) for r in real)
@@ -92,11 +119,39 @@ def remove_exposed(synth:list[Row], findings:list[Disclosure]) -> list[Row]:
     blocked={f.synthetic_index for f in findings if f.exposed}
     return [row for i,row in enumerate(synth) if i not in blocked]
 
+def attack_ensemble(
+    real_train:list[Row],
+    real_test:list[Row],
+    synth:list[Row],
+    membership_auc_limit:float=.65,
+    attribute_advantage_limit:float=.15,
+) -> dict[str,Any]:
+    if not .5 <= membership_auc_limit <= 1 or not 0 <= attribute_advantage_limit <= 1:
+        raise ValueError("attack limits are out of range")
+    rare=rare_disclosure_audit(real_train,synth)
+    auc=membership_inference_auc(real_train,real_test,synth)
+    attribute=attribute_inference(real_train,real_test,synth)
+    attacks=[
+      {"name":"rare_record_copy","cases":len(rare),"metric":sum(f.exposed for f in rare),
+       "limit":0,"risk_flag":any(f.exposed for f in rare)},
+      {"name":"membership_inference_auc","cases":len(real_train)+len(real_test),"metric":auc,
+       "limit":membership_auc_limit,"risk_flag":auc>=membership_auc_limit},
+      {"name":"attribute_inference_advantage","cases":attribute["cases"],"metric":attribute["advantage"],
+       "limit":attribute_advantage_limit,"risk_flag":attribute["advantage"]>=attribute_advantage_limit},
+    ]
+    return {"attacks":attacks,"risk_flags":sum(a["risk_flag"] for a in attacks),
+      "release_recommendation":"BLOCK_FOR_PRIVACY_REVIEW" if any(a["risk_flag"] for a in attacks) else "NO_ATTACK_EXCEEDED_LIMIT",
+      "attribute_inference":attribute}
+
 def evaluate_release(real_train:list[Row], real_test:list[Row], synth:list[Row]) -> dict[str,Any]:
+    if not real_train or not real_test or not synth:
+        raise ValueError("training, holdout, and synthetic data must be non-empty")
     real_acc=model_accuracy(real_train,real_test); synth_acc=model_accuracy(synth,real_test)
     findings=rare_disclosure_audit(real_train,synth)
+    attacks=attack_ensemble(real_train,real_test,synth)
     return {"rows":len(synth),"distribution_gap":distribution_gap(real_train,synth),
       "real_train_accuracy":real_acc,"synthetic_train_accuracy":synth_acc,
       "utility_gap":real_acc-synth_acc,"membership_attack_rate":membership_attack_rate(real_train,synth),
       "rare_rows_audited":len(findings),"rare_exposures":sum(f.exposed for f in findings),
-      "rare_findings":[asdict(f) for f in findings]}
+      "rare_findings":[asdict(f) for f in findings],"attack_ensemble":attacks}
+

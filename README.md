@@ -1,6 +1,6 @@
 # SynthSeal
 
-[![CI](https://github.com/MadanMohan0537/synthseal/actions/workflows/ci.yml/badge.svg)](https://github.com/MadanMohan0537/synthseal/actions/workflows/ci.yml)
+[![CI](https://github.com/MadanMohan0537/synthetic-data-release-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/MadanMohan0537/synthetic-data-release-audit/actions/workflows/ci.yml)
 
 SynthSeal packages a synthetic table with the evidence needed to judge it: distribution fidelity, train-on-synthetic/test-on-real utility, nearest-neighbor privacy risk, a rare-record disclosure challenge, and a plain-language data card.
 
@@ -19,8 +19,10 @@ Synthetic data is not safe merely because it is artificial. A generator can repr
 - Normalized nearest-neighbor and membership-threshold privacy metrics
 - Release packager producing CSV, JSON evidence, and a data card
 - **P1 rare-record disclosure challenge:** audits low-frequency combinations separately
+- **P1 attack ensemble:** rare-copy, membership-inference AUC, and sensitive-attribute inference with explicit denominators and limits
+- Release recommendation derived from independent attack flags rather than one privacy score
 - Seeded copied-outlier experiment and deterministic removal remediation
-- 20 focused tests and Python 3.11–3.13 CI
+- 27 focused tests and Python 3.11–3.13 CI
 
 No credentials, external services, models, or network access are required.
 
@@ -49,6 +51,10 @@ The frozen fixture contains exactly one rare Graduate/Remote/high-income combina
 - keep the absolute TSTR utility gap below 0.25;
 - report denominators rather than claiming formal privacy.
 
+## Attack-ensemble experiment
+
+The seeded release is evaluated by three attacker views. Before remediation, the rare-copy challenge flags one exposure, membership-inference AUC is 0.5479 against a 0.65 limit, and attribute-inference advantage is 0.0589 against a 0.15 limit. The release is blocked because one attack succeeds. After the exposed row is removed, there are zero attack flags, membership AUC falls to 0.5423, attribute advantage is 0.0556, and the TSTR utility gap remains −0.0333.
+
 ## Architecture
 
 ```text
@@ -60,8 +66,9 @@ source rows -> conditional sampler -> synthetic candidate
 
 ## Evidence boundaries
 
-This is a portfolio-scale evaluation workflow, not a privacy guarantee. The fixture is synthetic; the membership check is a simple threshold attack; categorical distance is hand-designed; the generator does not provide differential privacy; and the utility model is intentionally lightweight. Real releases require legal review, access controls, protected evaluation data, stronger attacks, purpose-specific models, and explicit privacy budgets. See [method and limitations](docs/METHOD.md) and [feature backlog](docs/BACKLOG.md).
+This is a portfolio-scale evaluation workflow, not a privacy guarantee. The fixture is synthetic; membership AUC is an optimistic distance attack rather than a calibrated production adversary; attribute inference uses one nearest-neighbor strategy; categorical distance is hand-designed; and the generator does not provide differential privacy. Real releases require legal review, access controls, protected evaluation data, stronger attacks, purpose-specific models, and explicit privacy budgets. See [method and limitations](docs/METHOD.md), [feature backlog](docs/BACKLOG.md), and [rotation progress](docs/PROGRESS.md).
 
 ## License
 
 MIT
+

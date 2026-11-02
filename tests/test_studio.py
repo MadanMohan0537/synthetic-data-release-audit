@@ -37,4 +37,41 @@ class StudioTests(unittest.TestCase):
     def test_fixture_has_holdout(self): self.assertEqual(len(self.test),60)
     def test_utility_reasonable(self): self.assertLess(abs(evaluate_release(self.train,self.test,generate(self.train,180))["utility_gap"]),.25)
 
+    def test_membership_auc_is_bounded(self):
+        value=membership_inference_auc(self.train,self.test,generate(self.train,180))
+        self.assertTrue(0<=value<=1)
+
+    def test_memorized_training_table_has_maximum_membership_auc(self):
+        self.assertEqual(1,membership_inference_auc(self.train,self.test,[dict(r) for r in self.train]))
+
+    def test_attribute_attack_reports_denominator_and_baseline(self):
+        result=attribute_inference(self.train,self.test,generate(self.train,180))
+        self.assertEqual(len(self.test),result["cases"])
+        self.assertTrue(0<=result["accuracy"]<=1)
+        self.assertTrue(0<=result["majority_baseline"]<=1)
+
+    def test_attack_ensemble_finds_seeded_rare_copy(self):
+        source=self.train[:-1]+[self.real[-1]]
+        synth=generate(source,180)+[dict(self.real[-1])]
+        result=attack_ensemble(source,self.test,synth)
+        rare=next(a for a in result["attacks"] if a["name"]=="rare_record_copy")
+        self.assertTrue(rare["risk_flag"])
+        self.assertEqual("BLOCK_FOR_PRIVACY_REVIEW",result["release_recommendation"])
+
+    def test_remediation_clears_rare_attack_flag(self):
+        source=self.train[:-1]+[self.real[-1]]
+        synth=generate(source,180)+[dict(self.real[-1])]
+        clean=remove_exposed(synth,rare_disclosure_audit(source,synth))
+        rare=next(a for a in attack_ensemble(source,self.test,clean)["attacks"] if a["name"]=="rare_record_copy")
+        self.assertFalse(rare["risk_flag"])
+
+    def test_attack_ensemble_rejects_empty_inputs(self):
+        with self.assertRaises(ValueError): attack_ensemble([],self.test,generate(self.train,2))
+        with self.assertRaises(ValueError): evaluate_release(self.train,self.test,[])
+
+    def test_attack_limits_are_validated(self):
+        with self.assertRaises(ValueError): attack_ensemble(self.train,self.test,generate(self.train,5),membership_auc_limit=.4)
+        with self.assertRaises(ValueError): attack_ensemble(self.train,self.test,generate(self.train,5),attribute_advantage_limit=-.1)
+
 if __name__=="__main__": unittest.main()
+
