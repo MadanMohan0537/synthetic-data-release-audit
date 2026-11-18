@@ -16,6 +16,18 @@ Three independent checks are reported with denominators and predeclared limits:
 
 In the frozen experiment, the rare-copy attack is the only pre-remediation flag. Removing that row changes the recommendation from `BLOCK_FOR_PRIVACY_REVIEW` to `NO_ATTACK_EXCEEDED_LIMIT`; membership AUC moves from 0.5479 to 0.5423 and attribute advantage from 0.0589 to 0.0556. A fully memorized training table separately produces membership AUC 1.0.
 
+## Subgroup utility floor
+
+The holdout is partitioned by the declared synthetic `region` field. A subgroup
+is eligible at 15 untouched test rows. For each eligible group, separate
+nearest-centroid classifiers are trained on the corresponding real and
+synthetic training slices, then evaluated on the same subgroup holdout.
+SynthSeal reports the paired accuracy difference and a deterministic 500-draw
+bootstrap interval. A release is blocked when point accuracy loss exceeds 0.15
+or when an eligible synthetic training slice lacks either task label. The
+seeded South collapse removes the positive label from its synthetic slice; the
+subgroup gate blocks it even though the global utility gap is only 0.0333.
+
 ## What the results mean
 
 A small utility gap supports only this task and fixture. A low observed attack rate means this particular attack did not succeed often; it does not prove anonymity, differential privacy, or resistance to stronger adversaries.
@@ -25,6 +37,10 @@ A small utility gap supports only this task and fixture. A low observed attack r
 - Data is synthetic and Adult-shaped, not a redistributed public dataset.
 - The conditional sampler does not preserve all correlations.
 - The classifier is not representative of every downstream use.
+- The subgroup classifier is deliberately simple and the 15-case eligibility and 0.15 loss limits are workflow choices, not power or fairness guarantees.
+- Bootstrap intervals reflect only this holdout's sampling variability; they do not address label bias, dataset shift, or repeated subgroup searching.
+- The region field is a synthetic operational slice. It must not be interpreted as a protected-attribute audit or evidence about real communities.
+- A missing synthetic label is a clear task-support failure, but passing label presence does not establish adequate representation.
 - Euclidean/categorical distance embeds subjective weights.
 - The membership attacker selects no operating threshold and AUC can hide risk concentrated in a few records.
 - Attribute inference evaluates one sensitive field and one nearest-neighbor attacker; low advantage does not rule out stronger auxiliary-data attacks.

@@ -55,12 +55,71 @@ def _centroids(train:list[Row]) -> dict[int,dict[str,float]]:
     return result
 
 def model_accuracy(train:list[Row], test:list[Row]) -> float:
+    predictions=_predict_labels(train,test)
+    return mean(pred==row["target"] for pred,row in zip(predictions,test))
+
+def _predict_labels(train:list[Row], test:list[Row]) -> list[int]:
+    if not train or not test or {r["target"] for r in train}!={0,1}:
+        raise ValueError("training and test rows are required and training must contain both labels")
     centers=_centroids(train); scales=_scales(train)
-    correct=0
+    predictions=[]
     for row in test:
         pred=min((0,1),key=lambda label:sum(((float(row[k])-centers[label][k])/scales[k])**2 for k in NUMERIC))
-        correct += pred==row["target"]
-    return correct/len(test)
+        predictions.append(pred)
+    return predictions
+
+def _bootstrap_mean_interval(values:list[float], seed:int, draws:int=500)->list[float]:
+    if not values: return [0.0,0.0]
+    rng=Random(seed); estimates=[]
+    for _ in range(draws): estimates.append(mean(rng.choices(values,k=len(values))))
+    estimates.sort()
+    return [round(estimates[int(.025*draws)],4),round(estimates[min(draws-1,int(.975*draws))],4)]
+
+def subgroup_utility_report(
+    real_train:list[Row],
+    real_test:list[Row],
+    synth:list[Row],
+    dimension:str="region",
+    minimum_test_cases:int=15,
+    maximum_accuracy_drop:float=.15,
+    draws:int=500,
+) -> dict[str,Any]:
+    if dimension not in CATEGORICAL:
+        raise ValueError("dimension must be a declared categorical field")
+    if minimum_test_cases<1 or not 0<=maximum_accuracy_drop<=1 or draws<100:
+        raise ValueError("subgroup audit parameters are invalid")
+    if not real_train or not real_test or not synth:
+        raise ValueError("real training, holdout, and synthetic rows are required")
+    groups=sorted({row[dimension] for row in real_test},key=str)
+    rows=[]
+    for index,group in enumerate(groups):
+        test=[row for row in real_test if row[dimension]==group]
+        real_group=[row for row in real_train if row[dimension]==group]
+        synth_group=[row for row in synth if row[dimension]==group]
+        eligible=len(test)>=minimum_test_cases
+        supported={row["target"] for row in real_group}=={0,1} and {row["target"] for row in synth_group}=={0,1}
+        base={"group":group,"test_cases":len(test),"real_train_rows":len(real_group),"synthetic_train_rows":len(synth_group),"eligible":eligible,"model_supported":supported}
+        if not eligible:
+            rows.append({**base,"status":"insufficient_holdout","additional_test_cases_needed":minimum_test_cases-len(test),"risk_flag":False})
+            continue
+        if not supported:
+            rows.append({**base,"status":"missing_training_label","additional_test_cases_needed":0,"risk_flag":True})
+            continue
+        real_predictions=_predict_labels(real_group,test); synth_predictions=_predict_labels(synth_group,test)
+        real_correct=[float(pred==row["target"]) for pred,row in zip(real_predictions,test)]
+        synth_correct=[float(pred==row["target"]) for pred,row in zip(synth_predictions,test)]
+        deltas=[real-synthetic for real,synthetic in zip(real_correct,synth_correct)]
+        drop=mean(deltas); interval=_bootstrap_mean_interval(deltas,seed=41+index,draws=draws)
+        rows.append({**base,"status":"evaluated","additional_test_cases_needed":0,
+          "real_accuracy":round(mean(real_correct),4),"synthetic_accuracy":round(mean(synth_correct),4),
+          "accuracy_drop":round(drop,4),"accuracy_drop_ci":interval,
+          "risk_flag":drop>maximum_accuracy_drop})
+    eligible=[row for row in rows if row["eligible"]]
+    flagged=[row["group"] for row in eligible if row["risk_flag"]]
+    return {"dimension":dimension,"minimum_test_cases":minimum_test_cases,
+      "maximum_accuracy_drop":maximum_accuracy_drop,"bootstrap_draws":draws,
+      "holdout_cases":len(real_test),"eligible_subgroups":len(eligible),"subgroups":rows,
+      "flagged_subgroups":flagged,"release_gate_passed":not flagged}
 
 def nearest_distances(real:list[Row], synth:list[Row]) -> list[float]:
     scales=_scales(real)
@@ -153,5 +212,6 @@ def evaluate_release(real_train:list[Row], real_test:list[Row], synth:list[Row])
       "real_train_accuracy":real_acc,"synthetic_train_accuracy":synth_acc,
       "utility_gap":real_acc-synth_acc,"membership_attack_rate":membership_attack_rate(real_train,synth),
       "rare_rows_audited":len(findings),"rare_exposures":sum(f.exposed for f in findings),
-      "rare_findings":[asdict(f) for f in findings],"attack_ensemble":attacks}
+      "rare_findings":[asdict(f) for f in findings],"attack_ensemble":attacks,
+      "subgroup_utility":subgroup_utility_report(real_train,real_test,synth)}
 

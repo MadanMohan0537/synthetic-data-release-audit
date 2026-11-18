@@ -21,8 +21,9 @@ Synthetic data is not safe merely because it is artificial. A generator can repr
 - **P1 rare-record disclosure challenge:** audits low-frequency combinations separately
 - **P1 attack ensemble:** rare-copy, membership-inference AUC, and sensitive-attribute inference with explicit denominators and limits
 - Release recommendation derived from independent attack flags rather than one privacy score
+- **Subgroup utility floor:** region-specific TSTR accuracy, paired bootstrap intervals, holdout eligibility counts, missing-label checks, and a release gate
 - Seeded copied-outlier experiment and deterministic removal remediation
-- 27 focused tests and Python 3.11–3.13 CI
+- 35 focused tests and Python 3.11–3.13 CI
 
 No credentials, external services, models, or network access are required.
 
@@ -55,18 +56,29 @@ The frozen fixture contains exactly one rare Graduate/Remote/high-income combina
 
 The seeded release is evaluated by three attacker views. Before remediation, the rare-copy challenge flags one exposure, membership-inference AUC is 0.5479 against a 0.65 limit, and attribute-inference advantage is 0.0589 against a 0.15 limit. The release is blocked because one attack succeeds. After the exposed row is removed, there are zero attack flags, membership AUC falls to 0.5423, attribute advantage is 0.0556, and the TSTR utility gap remains −0.0333.
 
+## Subgroup-utility experiment
+
+The release evaluates three eligible region slices across a 60-row untouched
+holdout and reports real-trained accuracy, synthetic-trained accuracy, their
+paired difference, deterministic bootstrap intervals, and training/holdout
+denominators. The normal remediated release passes. A seeded candidate removes
+all positive-label training examples from the South synthetic slice. Overall
+utility remains within budget with a 0.0333 gap, but the subgroup gate blocks
+the release because that slice can no longer train the declared binary task.
+
 ## Architecture
 
 ```text
 source rows -> conditional sampler -> synthetic candidate
                                     -> utility suite
+                                    -> subgroup utility gate
                                     -> privacy suite -> rare challenge -> remediation
                                                         -> release package
 ```
 
 ## Evidence boundaries
 
-This is a portfolio-scale evaluation workflow, not a privacy guarantee. The fixture is synthetic; membership AUC is an optimistic distance attack rather than a calibrated production adversary; attribute inference uses one nearest-neighbor strategy; categorical distance is hand-designed; and the generator does not provide differential privacy. Real releases require legal review, access controls, protected evaluation data, stronger attacks, purpose-specific models, and explicit privacy budgets. See [method and limitations](docs/METHOD.md), [feature backlog](docs/BACKLOG.md), and [rotation progress](docs/PROGRESS.md).
+This is a portfolio-scale evaluation workflow, not a privacy guarantee. The fixture is synthetic; membership AUC is an optimistic distance attack rather than a calibrated production adversary; attribute inference uses one nearest-neighbor strategy; categorical distance is hand-designed; subgroup categories are synthetic operational slices rather than protected-class conclusions; and the generator does not provide differential privacy. Real releases require legal review, access controls, protected evaluation data, stronger attacks, purpose-specific models, and explicit privacy budgets. See [method and limitations](docs/METHOD.md), [feature backlog](docs/BACKLOG.md), and [rotation progress](docs/PROGRESS.md).
 
 ## License
 

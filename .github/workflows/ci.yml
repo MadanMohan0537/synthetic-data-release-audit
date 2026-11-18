@@ -15,3 +15,15 @@ jobs:
       - run: python -m pip install -e .
       - run: python -m unittest discover -s tests -v
       - run: python -m synthseal.cli --output release
+      - run: |
+          python - <<'PY'
+          import json
+          report=json.load(open('release/report.json'))
+          evidence=report['subgroup_utility_experiment']
+          assert evidence['acceptance_passed']
+          assert evidence['overall_within_budget']
+          assert not evidence['audit']['release_gate_passed']
+          assert evidence['audit']['flagged_subgroups']==['South']
+          assert report['after_remediation']['subgroup_utility']['holdout_cases']==60
+          PY
+
